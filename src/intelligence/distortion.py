@@ -1,39 +1,61 @@
 """
-Cognitive distortion classifier.
-Identifies thinking patterns like catastrophizing, all-or-nothing thinking, etc.
+WEEK 2: Intelligence Layer #2 — Cognitive Distortion Detection
+Goal: Identify thinking patterns (10 distortion types) in user messages.
+
+Author Comment:
+    Build a cognitive distortion classifier.
+    10 distortion types: catastrophizing, black_and_white, overgeneralization,
+    mind_reading, fortune_telling, emotional_reasoning, should_statements,
+    labeling, personalization, magnification
+    Input: user message string
+    Output: dict with top distortion type and confidence score
+    Use a fine-tuned BERT or zero-shot classification from HuggingFace.
+    
+    Let Copilot generate the implementation — review each suggested block before accepting.
 """
 from transformers import pipeline
 import torch
+import re
 
 
-class CognitiveDdistortionDetector:
+class CognitiveDistortionDetector:
     """Detect cognitive distortions in user messages."""
     
-    # Dictionary of distortion patterns
-    DISTORTION_KEYWORDS = {
-        'catastrophizing': ['disaster', 'catastrophe', 'worst', 'ruined', 'never recover', 'terrible'],
-        'all_or_nothing': ['always', 'never', 'perfect', 'failure', 'completely', 'total'],
-        'overgeneralization': ['everyone', 'always', 'never', 'constantly', 'nobody'],
-        'mind_reading': ['they think', 'know they', 'they must', 'probably think'],
-        'emotional_reasoning': ['feel like', 'feel that', 'my feelings tell me'],
-        'should_statements': ['should', 'must', 'have to', 'ought to'],
-        'personalization': ['my fault', 'because of me', 'i caused', 'i made them']
+    # Define 10 cognitive distortion patterns
+    DISTORTIONS = {
+        'catastrophizing': ['disaster', 'catastrophe', 'worst', 'ruined', 'never recover', 'terrible', 'horrible'],
+        'black_and_white': ['always', 'never', 'perfect', 'failure', 'completely', 'total', 'all or nothing'],
+        'overgeneralization': ['everyone', 'nobody', 'always', 'constantly', 'every time', 'all'],
+        'mind_reading': ['they think', 'know they', 'they must', 'probably thinking', 'i know what they'],
+        'fortune_telling': ['will happen', 'going to', 'definitely will', 'it\'s certain'],
+        'emotional_reasoning': ['feel like', 'feel that', 'my feelings tell me', 'because i feel'],
+        'should_statements': ['should', 'must', 'have to', 'ought to', 'supposed to'],
+        'labeling': ['i\'m a', 'i\'m just a', 'i\'m worthless', 'i\'m failure', 'i\'m stupid'],
+        'personalization': ['my fault', 'because of me', 'i caused', 'i made them', 'it\'s my doing'],
+        'magnification': ['so bad', 'terrible', 'worst', 'unbearable', 'can\'t stand it']
     }
     
-    def __init__(self, use_ml=True):
+    def __init__(self, use_ml=False):
         """
         Initialize distortion detector.
         
         Args:
-            use_ml: Use ML model for more sophisticated detection
+            use_ml: Use zero-shot classification for more sophisticated detection
         """
+        print("[Distortion] Initializing detector...")
         self.use_ml = use_ml
+        
         if use_ml:
-            self.classifier = pipeline(
-                "zero-shot-classification",
-                model="facebook/bart-large-mnli",
-                device=0 if torch.cuda.is_available() else -1
-            )
+            try:
+                self.classifier = pipeline(
+                    "zero-shot-classification",
+                    model="facebook/bart-large-mnli",
+                    device=0 if torch.cuda.is_available() else -1
+                )
+                print("[Distortion] ✓ BART zero-shot classifier loaded")
+            except Exception as e:
+                print(f"[Distortion] ⚠ Failed to load BART: {e}")
+                self.use_ml = False
     
     def detect_keywords(self, text):
         """
@@ -43,18 +65,18 @@ class CognitiveDdistortionDetector:
             text: User message
             
         Returns:
-            List of detected distortions
+            List of detected distortions with confidence
         """
         text_lower = text.lower()
-        detected = []
+        detected = {}
         
-        for distortion, keywords in self.DISTORTION_KEYWORDS.items():
+        for distortion, keywords in self.DISTORTIONS.items():
             for keyword in keywords:
                 if keyword in text_lower:
-                    detected.append(distortion)
+                    detected[distortion] = 0.8  # High confidence for keyword match
                     break
         
-        return list(set(detected))
+        return detected
     
     def detect_ml(self, text):
         """
@@ -66,18 +88,18 @@ class CognitiveDdistortionDetector:
         Returns:
             Distortion labels and confidence scores
         """
-        distortion_types = list(self.DISTORTION_KEYWORDS.keys())
+        distortion_types = list(self.DISTORTIONS.keys())
         
-        result = self.classifier(
-            text,
-            distortion_types,
-            multi_class=True
-        )
-        
-        return {
-            'labels': result['labels'],
-            'scores': result['scores']
-        }
+        try:
+            result = self.classifier(
+                text,
+                distortion_types,
+                multi_class=True
+            )
+            return dict(zip(result['labels'], result['scores']))
+        except Exception as e:
+            print(f"[Distortion] ⚠ ML detection failed: {e}")
+            return {}
     
     def analyze(self, text):
         """
@@ -87,41 +109,53 @@ class CognitiveDdistortionDetector:
             text: User message
             
         Returns:
-            Detected distortions with confidence
+            Detected distortions with top match and confidence
         """
         keyword_distortions = self.detect_keywords(text)
         
         result = {
             'text': text,
-            'keyword_distortions': keyword_distortions
+            'keyword_matches': keyword_distortions
         }
         
         if self.use_ml:
-            ml_result = self.detect_ml(text)
-            result['ml_analysis'] = ml_result
+            ml_distortions = self.detect_ml(text)
+            result['ml_matches'] = ml_distortions
             
-            # Combine results
-            high_confidence_distortions = [
-                label for label, score in zip(ml_result['labels'], ml_result['scores'])
-                if score > 0.3
-            ]
-            result['detected_distortions'] = list(set(keyword_distortions + high_confidence_distortions))
+            # Combine results (keyword matches override ML)
+            all_distortions = {**ml_distortions, **keyword_distortions}
         else:
-            result['detected_distortions'] = keyword_distortions
+            all_distortions = keyword_distortions
+        
+        # Get top distortion
+        if all_distortions:
+            top_distortion = max(all_distortions.items(), key=lambda x: x[1])
+            result['top_distortion'] = top_distortion[0]
+            result['confidence'] = top_distortion[1]
+        else:
+            result['top_distortion'] = None
+            result['confidence'] = 0.0
         
         return result
 
 
 if __name__ == "__main__":
-    detector = CognitiveDdistortionDetector(use_ml=False)
+    print("\n" + "="*60)
+    print("WEEK 2: Testing Cognitive Distortion Detector")
+    print("="*60)
+    
+    detector = CognitiveDistortionDetector(use_ml=False)
     
     test_messages = [
         "I always mess everything up. I'm a complete failure.",
         "Everyone thinks I'm stupid.",
-        "If this doesn't work out perfectly, it's a disaster."
+        "If this doesn't work out perfectly, it's a disaster.",
+        "I should be able to handle this, I must be strong",
+        "This is my fault. I caused all of this."
     ]
     
     for msg in test_messages:
         result = detector.analyze(msg)
-        print(f"Message: {result['text']}")
-        print(f"Distortions: {result['detected_distortions']}\n")
+        print(f"\nMessage: {msg}")
+        print(f"  Top Distortion: {result['top_distortion']}")
+        print(f"  Confidence: {result['confidence']:.2f}")

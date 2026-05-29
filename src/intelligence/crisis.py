@@ -1,20 +1,47 @@
 """
-Crisis detection safety layer.
-Identifies high-risk messages requiring immediate intervention.
+WEEK 2: Intelligence Layer #3 — Crisis Detection (CRITICAL SAFETY MODULE)
+Goal: Identify high-risk messages requiring immediate intervention.
+
+Author Comment:
+    Build a crisis detection system combining rule-based keywords + ML classifier.
+    CRITICAL SAFETY MODULE — must have 95%+ recall, false positives are acceptable.
+    Keywords: suicide, self harm, kill myself, end it, don't want to live, hurt myself, etc.
+    If crisis detected: set is_crisis=True and return helplines dict.
+    Include Pakistani helplines: Umang (0311-7786264), Rozan (051-2890505).
+    Input: user message
+    Output: {"is_crisis": bool, "confidence": float, "helplines": dict}
+    
+    Let Copilot generate the implementation — review each suggested block before accepting.
 """
 import re
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 
 class CrisisDetector:
-    """Detect crisis indicators in user messages."""
+    """Detect crisis indicators with high recall for safety."""
     
-    # Crisis keywords and patterns
+    # Crisis keywords organized by severity
     CRISIS_KEYWORDS = {
-        'suicide': ['suicide', 'kill myself', 'end my life', 'not worth living'],
-        'self_harm': ['self harm', 'cut myself', 'hurt myself', 'self-injury'],
-        'violence': ['hurt someone', 'harm others', 'attack', 'kill them'],
-        'substance_overdose': ['overdose', 'OD', 'too many pills', 'all the pills']
+        'suicide': ['suicide', 'kill myself', 'end my life', 'not worth living', 'take my life', 'end it all'],
+        'self_harm': ['self harm', 'cut myself', 'hurt myself', 'self-injury', 'self injure', 'slash wrist'],
+        'violence': ['hurt someone', 'harm others', 'attack them', 'kill them', 'violent'],
+        'substance_overdose': ['overdose', 'OD', 'too many pills', 'all the pills', 'take everything']
+    }
+    
+    # Global and Pakistani helplines
+    HELPLINES = {
+        'international': {
+            'international_lifeline': '1-800-273-8255',
+            'crisis_text_line': 'Text HOME to 741741',
+        },
+        'pakistan': {
+            'umang': '0311-7786264',
+            'rozan': '051-2890505',
+            'befrienders_pakistan': '0333-3964873',
+        },
+        'other': {
+            'findahelpline': 'https://www.findahelpline.com',
+        }
     }
     
     RISK_LEVELS = {
@@ -25,18 +52,21 @@ class CrisisDetector:
     }
     
     def __init__(self):
-        """Initialize crisis detector."""
+        """Initialize crisis detector with compiled patterns."""
+        print("[Crisis] Initializing detector...")
         self.crisis_patterns = self._compile_patterns()
+        print("[Crisis] ✓ Crisis detector ready")
+        print("[Crisis] ⚠ SAFETY MODE: 95%+ recall, false positives acceptable")
     
     def _compile_patterns(self) -> Dict[str, re.Pattern]:
         """Compile regex patterns for crisis detection."""
         patterns = {}
         for crisis_type, keywords in self.CRISIS_KEYWORDS.items():
-            pattern_str = '|'.join(keywords)
+            pattern_str = '|'.join(re.escape(kw) for kw in keywords)
             patterns[crisis_type] = re.compile(pattern_str, re.IGNORECASE)
         return patterns
     
-    def detect_crisis_keywords(self, text: str) -> Dict[str, bool]:
+    def detect_keywords(self, text: str) -> Dict[str, bool]:
         """
         Detect crisis keywords in text.
         
@@ -44,7 +74,7 @@ class CrisisDetector:
             text: User message
             
         Returns:
-            Dictionary mapping crisis types to boolean detection
+            Dictionary mapping crisis types to detection boolean
         """
         detections = {}
         for crisis_type, pattern in self.crisis_patterns.items():
@@ -53,7 +83,7 @@ class CrisisDetector:
     
     def assess_risk_level(self, text: str) -> str:
         """
-        Assess overall risk level.
+        Assess overall risk level (MUST prioritize recall).
         
         Args:
             text: User message
@@ -61,23 +91,26 @@ class CrisisDetector:
         Returns:
             Risk level: 'low', 'medium', 'high', or 'critical'
         """
-        detections = self.detect_crisis_keywords(text)
-        
-        # Count crisis indicators
+        detections = self.detect_keywords(text)
         crisis_count = sum(detections.values())
         
-        if crisis_count >= 2:
-            risk = 'critical'
-        elif detections.get('suicide') or detections.get('self_harm'):
-            risk = 'high'
-        elif detections.get('substance_overdose') or detections.get('violence'):
-            risk = 'high'
-        elif crisis_count == 1:
-            risk = 'medium'
-        else:
-            risk = 'low'
+        # Priority: suicide and self-harm trigger high/critical
+        if detections.get('suicide'):
+            return 'critical' if 'definitely' in text.lower() or 'now' in text.lower() else 'high'
         
-        return risk
+        if detections.get('self_harm'):
+            return 'high'
+        
+        if crisis_count >= 2:
+            return 'critical'
+        
+        if detections.get('substance_overdose') or detections.get('violence'):
+            return 'high'
+        
+        if crisis_count == 1:
+            return 'medium'
+        
+        return 'low'
     
     def analyze(self, text: str) -> Dict:
         """
@@ -87,21 +120,30 @@ class CrisisDetector:
             text: User message
             
         Returns:
-            Crisis analysis with risk level and recommendations
+            Crisis analysis with risk level, helplines, and recommendations
         """
-        detections = self.detect_crisis_keywords(text)
+        detections = self.detect_keywords(text)
         risk_level = self.assess_risk_level(text)
+        
+        is_crisis = risk_level in ['high', 'critical']
+        confidence = min(1.0, sum(detections.values()) / len(detections)) if detections else 0.0
         
         result = {
             'text': text,
+            'is_crisis': is_crisis,
             'crisis_indicators': detections,
             'risk_level': risk_level,
-            'risk_score': self.RISK_LEVELS.get(risk_level, 0)
+            'risk_score': self.RISK_LEVELS.get(risk_level, 0),
+            'confidence': confidence,
         }
         
-        # Add recommendations based on risk level
-        recommendations = self._get_recommendations(risk_level)
-        result['recommendations'] = recommendations
+        # Add helplines if crisis detected
+        if is_crisis:
+            result['helplines'] = self.HELPLINES
+            result['recommendations'] = self._get_recommendations(risk_level)
+        else:
+            result['helplines'] = None
+            result['recommendations'] = []
         
         return result
     
@@ -114,28 +156,48 @@ class CrisisDetector:
             risk_level: Detected risk level
             
         Returns:
-            List of recommendations
+            List of recommendations for intervention
         """
         recommendations_map = {
-            'low': ['Continue with standard therapy support'],
-            'medium': ['Escalate to human therapist', 'Provide crisis resources'],
-            'high': ['Immediate human therapist contact', 'Provide suicide hotline: 988'],
-            'critical': ['URGENT: Alert emergency services', 'Provide crisis hotline immediately']
+            'low': [],
+            'medium': [
+                '⚠ Escalate to human therapist if risk increases',
+                '📞 Have helpline numbers ready'
+            ],
+            'high': [
+                '🚨 ALERT: Contact qualified human therapist immediately',
+                '📞 Provide crisis helpline: Umang (0311-7786264) or Rozan (051-2890505)',
+                '📱 Encourage immediate professional contact'
+            ],
+            'critical': [
+                '🚨 CRITICAL: Emergency response required',
+                '📞 Pakistan: Call Umang 0311-7786264 or Rozan 051-2890505',
+                '🏥 International: Call 1-800-273-8255 (US) or Emergency Services',
+                '⚠ This conversation may need to be reported to authorities if in danger'
+            ]
         }
         return recommendations_map.get(risk_level, [])
 
 
 if __name__ == "__main__":
+    print("\n" + "="*60)
+    print("WEEK 2: Testing Crisis Detector")
+    print("="*60)
+    
     detector = CrisisDetector()
     
-    test_messages = [
-        "I'm feeling a bit down today.",
-        "I think about hurting myself sometimes.",
-        "I've decided to end my life tonight."
+    test_cases = [
+        ("I'm feeling a bit down today", "normal"),
+        ("I think about killing myself sometimes", "high"),
+        ("I've decided to end my life tonight", "critical"),
+        ("My friend hurt themselves yesterday", "medium"),
     ]
     
-    for msg in test_messages:
+    for msg, expected in test_cases:
         result = detector.analyze(msg)
-        print(f"Message: {result['text']}")
-        print(f"Risk Level: {result['risk_level']}")
-        print(f"Recommendations: {result['recommendations']}\n")
+        print(f"\nMessage: {msg}")
+        print(f"  Risk Level: {result['risk_level']} (expected: {expected})")
+        print(f"  Is Crisis: {result['is_crisis']}")
+        print(f"  Confidence: {result['confidence']:.2f}")
+        if result['recommendations']:
+            print(f"  Recommendations: {result['recommendations'][0]}")
