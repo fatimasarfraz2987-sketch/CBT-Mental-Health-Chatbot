@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CBT Mental Health Chatbot</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🧠 CBT Therapy Chatbot</h1>
+            <p>Your personal AI-powered cognitive behavioral therapy assistant</p>
+        </header>
+
+        <main class="chat-container">
+            <div class="chat-window" id="chatWindow">
+                <div class="message bot-message">
+                    <div class="message-content">
+                        <p>Hello! I'm your CBT therapy assistant. I'm here to help you explore your thoughts and
+                            feelings. How are you doing today?</p>
+                    </div>
+                    <div class="message-time">Now</div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <input type="text" id="userInput" class="input-field"
+                        placeholder="Share your thoughts or concerns..." autocomplete="off">
+                    <button id="sendBtn" class="send-btn">Send</button>
+                </div>
+                <div class="info-text">
+                    ⚠️ If you're in crisis, please contact emergency services or call 988 (Suicide & Crisis Lifeline)
+                </div>
+            </div>
+        </main>
+
+        <aside class="analysis-panel">
+            <div class="analysis-header">
+                <h3>Session Analysis</h3>
+            </div>
+
+            <div class="analysis-content">
+                <div class="analysis-item">
+                    <label>Current Sentiment:</label>
+                    <span id="sentimentDisplay" class="sentiment neutral">Neutral</span>
+                </div>
+
+                <div class="analysis-item">
+                    <label>Risk Level:</label>
+                    <span id="riskDisplay" class="risk low">Low</span>
+                </div>
+
+                <div class="analysis-item">
+                    <label>Cognitive Distortions Detected:</label>
+                    <div id="distortionsDisplay" class="distortions-list">
+                        <span class="no-distortion">None detected</span>
+                    </div>
+                </div>
+
+                <div class="analysis-item">
+                    <label>Message Count:</label>
+                    <span id="messageCount">1</span>
+                </div>
+            </div>
+
+            <div class="resources-section">
+                <h4>Emergency Resources</h4>
+                <ul>
+                    <li><strong>988:</strong> Suicide & Crisis Lifeline (US)</li>
+                    <li><strong>Crisis Text Line:</strong> Text HOME to 741741</li>
+                    <li><strong>International:</strong> findahelpline.com</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
