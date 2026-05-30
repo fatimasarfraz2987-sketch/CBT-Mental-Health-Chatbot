@@ -1,4 +1,4 @@
-"""
+﻿"""
 WEEK 1: Data & Foundation
 Goal: Download datasets, clean them, and produce cbt_pairs.json ready for training.
 
@@ -7,121 +7,138 @@ Author Comment:
     Each pair should have: {"input": "user message", "response": "therapist response", "emotion": "label"}
     Filter out short responses (< 50 chars) and rows with missing data.
     Save final dataset to data/processed/cbt_pairs.json with count printed at the end.
-    
-    Let Copilot generate the implementation — review each suggested block before accepting.
 """
-import os
-import tarfile
-import tempfile
-import urllib.request
-import csv
-import pandas as pd
+
 import json
-from datasets import Dataset, DatasetDict, load_dataset
+import os
+import re
+from html import unescape
 
-output_dir = "data/raw/empathetic_dialogues/"
-os.makedirs(output_dir, exist_ok=True)
+import pandas as pd
+from datasets import load_dataset, load_from_disk
 
-print("=" * 60)
-print("WEEK 1: Data Processing & Foundation")
-print("=" * 60)
-print("\n[Step 1/3] Loading EmpatheticDialogues dataset...")
-try:
-    dataset = load_dataset("empathetic_dialogues")
-except Exception as e:
-    print(f"Direct load_dataset('empathetic_dialogues') failed: {e}")
-    print("Falling back to the original ParlAI archive URL.")
-    archive_url = "https://dl.fbaipublicfiles.com/parlai/empatheticdialogues/empatheticdialogues.tar.gz"
-    with tempfile.TemporaryDirectory() as tmpdir:
-        archive_path = os.path.join(tmpdir, "empatheticdialogues.tar.gz")
-        print(f"Downloading archive from {archive_url}...")
-        urllib.request.urlretrieve(archive_url, archive_path)
-        with tarfile.open(archive_path, "r:gz") as tar:
-            split_files = {
-                "train": "empatheticdialogues/train.csv",
-                "valid": "empatheticdialogues/valid.csv",
-                "test": "empatheticdialogues/test.csv",
-            }
-            dataset = DatasetDict()
-            for split, path in split_files.items():
-                with tar.extractfile(path) as fh:
-                    reader = csv.DictReader(line.decode("utf-8") for line in fh)
-                    rows = []
-                    for row in reader:
-                        rows.append(
-                            {
-                                "utterance": row["utterance"],
-                                "utterance_idx": int(row["utterance_idx"]),
-                                "context": row["context"],
-                                "prompt": row["prompt"],
-                                "speaker_idx": int(row["speaker_idx"]),
-                                "conv_id": row["conv_id"],
-                                "selfeval": row.get("selfeval", "") or "",
-                                "tags": row.get("tags", "") or "",
-                            }
-                        )
-                dataset[split] = Dataset.from_pandas(pd.DataFrame(rows))
+RAW_COUNSEL_PATH = os.path.join("data", "raw", "counsel_chat", "counselchat-data.csv")
+EMPATHETIC_RAW_DIR = os.path.join("data", "raw", "empathetic_dialogues")
+PROCESSED_DIR = os.path.join("data", "processed")
+OUTPUT_PATH = os.path.join(PROCESSED_DIR, "cbt_pairs.json")
 
-    print("Download and extraction complete.")
+os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-dataset.save_to_disk(output_dir)
-print("✓ EmpatheticDialogues saved to", output_dir)
+EMPATHETIC_SOURCE = "empathetic_dialogues"
+COUNSEL_SOURCE = "counselchat"
+MIN_RESPONSE_LENGTH = 50
 
-# ============================================================================
-# [Step 2/3] Load Counsel Chat and convert to CBT format
-# ============================================================================
-print("\n[Step 2/3] Processing CounselChat dataset...")
-counsel_path = os.path.join("data", "raw", "counsel_chat", "counselchat-data.csv")
-processed_dir = os.path.join("data", "processed")
-os.makedirs(processed_dir, exist_ok=True)
 
-cbt_pairs = []
+def strip_html(text: str) -> str:
+    text = unescape(text or "")
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.strip()
 
-try:
-    counsel_df = pd.read_csv(counsel_path)
-    print(f"✓ Loaded {len(counsel_df)} records from CounselChat")
-    
-    for idx, row in counsel_df.iterrows():
-        question = str(row.get("questionText", "")).strip()
-        answer = str(row.get("answerText", "")).strip()
-        topic = str(row.get("topics", "")).strip()
-        
-        # Filter: ensure both question and answer exist
+
+def load_empathetic_dataset():
+    print("\n[Step 1/3] Loading EmpatheticDialogues dataset...")
+    try:
+        dataset = load_dataset("empathetic_dialogues")
+        print("✓ Loaded EmpatheticDialogues from HuggingFace")
+        return dataset
+    except Exception as exc:
+        print(f"⚠ HuggingFace load failed: {exc}")
+        if os.path.isdir(EMPATHETIC_RAW_DIR):
+            print(f"✓ Loading EmpatheticDialogues from local cache: {EMPATHETIC_RAW_DIR}")
+            return load_from_disk(EMPATHETIC_RAW_DIR)
+        raise
+
+
+def build_empathetic_pairs(dataset):
+    pairs = []
+    for split_name in dataset.keys():
+        for example in dataset[split_name]:
+            context = example.get("context", "")
+            if isinstance(context, list):
+                input_text = " ".join(str(turn).strip() for turn in context if turn)
+            else:
+                input_text = str(context or "").strip()
+
+            response = str(example.get("utterance", "")).strip()
+            emotion = str(example.get("prompt", "neutral")).strip().lower() or "neutral"
+
+            if not input_text or not response:
+                continue
+            if len(response) < MIN_RESPONSE_LENGTH:
+                continue
+
+            pairs.append(
+                {
+                    "input": input_text,
+                    "response": response,
+                    "emotion": emotion,
+                    "source": EMPATHETIC_SOURCE,
+                    "split": split_name,
+                }
+            )
+
+    print(f"✓ Built {len(pairs)} EmpatheticDialogues CBT pairs")
+    return pairs
+
+
+def build_counsel_pairs(path=RAW_COUNSEL_PATH):
+    pairs = []
+    print("\n[Step 2/3] Loading CounselChat dataset...")
+    if not os.path.exists(path):
+        print(f"⚠ CounselChat file not found at {path}")
+        return pairs
+
+    counsel_df = pd.read_csv(path)
+    print(f"✓ Loaded {len(counsel_df)} CounselChat records")
+
+    for _, row in counsel_df.iterrows():
+        question = str(row.get("questionText", "") or "").strip()
+        answer = strip_html(str(row.get("answerText", "") or "")).strip()
+        topic = str(row.get("topics", "") or "").strip()
+
         if not question or not answer:
             continue
-        
-        # Filter: answer must be at least 50 characters (meaningful response)
-        if len(answer) < 50:
+        if len(answer) < MIN_RESPONSE_LENGTH:
             continue
-        
-        # Create CBT-format pair
-        cbt_pair = {
-            "input": question,
-            "response": answer,
-            "emotion": "neutral",  # Will be labeled later by sentiment module
-            "topic": topic if topic else "general",
-            "source": "counselchat"
-        }
-        cbt_pairs.append(cbt_pair)
-    
-    print(f"✓ After filtering: {len(cbt_pairs)} valid CBT pairs")
 
-except FileNotFoundError:
-    print(f"⚠ CounselChat file not found at {counsel_path}")
-    print("  Make sure counselchat-data.csv is in data/raw/counsel_chat/")
+        pairs.append(
+            {
+                "input": question,
+                "response": answer,
+                "emotion": "neutral",
+                "source": COUNSEL_SOURCE,
+                "topic": topic or "general",
+            }
+        )
 
-# ============================================================================
-# [Step 3/3] Save CBT pairs to JSON
-# ============================================================================
-print("\n[Step 3/3] Saving cleaned CBT pairs...")
+    print(f"✓ Built {len(pairs)} CounselChat CBT pairs")
+    return pairs
 
-output_path = os.path.join(processed_dir, "cbt_pairs.json")
 
-with open(output_path, 'w', encoding='utf-8') as f:
-    json.dump(cbt_pairs, f, indent=2, ensure_ascii=False)
+def save_cbt_pairs(pairs):
+    print(f"\n[Step 3/3] Saving {len(pairs)} CBT pairs to {OUTPUT_PATH}")
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(pairs, f, indent=2, ensure_ascii=False)
+    print(f"✓ Saved {len(pairs)} CBT pairs")
 
-print(f"✓ Saved {len(cbt_pairs)} CBT pairs to {output_path}")
-print("\n" + "=" * 60)
-print(f"WEEK 1 COMPLETE: {len(cbt_pairs)} training pairs ready!")
-print(f"Next: Run tokenize.py to prepare for model training")
-print("=" * 60)
+
+if __name__ == "__main__":
+    cbt_pairs = []
+
+    try:
+        empathetic_dataset = load_empathetic_dataset()
+        cbt_pairs.extend(build_empathetic_pairs(empathetic_dataset))
+    except Exception as exc:
+        print(f"⚠ Could not load EmpatheticDialogues: {exc}")
+
+    cbt_pairs.extend(build_counsel_pairs())
+
+    if not cbt_pairs:
+        raise RuntimeError("No CBT pairs available. Please check raw dataset files.")
+
+    save_cbt_pairs(cbt_pairs)
+
+    print("\n" + "=" * 60)
+    print(f"WEEK 1 COMPLETE: {len(cbt_pairs)} CBT pairs ready for training")
+    print("Next: Run src/data_processing/tokenize.py to prepare model inputs")
+    print("=" * 60)
